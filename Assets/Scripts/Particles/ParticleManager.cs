@@ -6,7 +6,7 @@ using UnityEngine.UIElements;
 
 public class ParticleManager : MonoBehaviour
 {
-    
+    [ExecuteAlways]
     struct Particle
     {
         public Vector2 position;
@@ -17,6 +17,7 @@ public class ParticleManager : MonoBehaviour
     List<GameObject> particleVisuals = new List<GameObject>();
 
     [Header("Particle")]
+    Transform particleParent;
     public int particleCount = 100;
     public float particleSize = 0.2f;
     public float particleSpacing = 0.25f;
@@ -30,10 +31,18 @@ public class ParticleManager : MonoBehaviour
     public float collisionDampening = 0.5f;
 
     [Header("Bounds")]
-    public Vector2 boundsSize = new Vector2(10f, 10f);
+    public Vector2 boundsSize = new Vector2(8f, 8f);
     public Vector2 boundsCentre = Vector2.zero;
 
     LineRenderer boundsRenderer;
+
+    private void OnValidate()
+    {
+        if (!Application.isPlaying) 
+        {
+            RegenerateParticles();
+        }
+    }
 
     void Start()
     {
@@ -46,7 +55,7 @@ public class ParticleManager : MonoBehaviour
         boundsRenderer.useWorldSpace = true;
         boundsRenderer.material.color = Color.green;
 
-        SpawnParticles();
+        RegenerateParticles();
 
     }
 
@@ -77,8 +86,27 @@ public class ParticleManager : MonoBehaviour
 
     }
 
-    void SpawnParticles()
+    void RegenerateParticles()
     {
+        if (particleParent == null)
+        {
+            Transform existing = transform.Find("Particles");
+            if (existing != null)
+            {
+                particleParent = existing;
+            }
+            else
+            {
+                particleParent = new GameObject("Particles").transform;
+                particleParent.parent = transform;
+            }
+
+        }
+        for (int i = particleParent.childCount - 1; i >= 0; i--)
+        {
+            DestroyImmediate(particleParent.GetChild(i).gameObject);
+        }
+
         particles.Clear();
         particleVisuals.Clear();
         int gridSize = Mathf.CeilToInt(Mathf.Sqrt(particleCount));
@@ -97,7 +125,7 @@ public class ParticleManager : MonoBehaviour
 
             particles.Add(p);
 
-            GameObject visual = Instantiate(particlePrefab, pos, Quaternion.identity);
+            GameObject visual = Instantiate(particlePrefab, pos, Quaternion.identity, particleParent);
             visual.transform.localScale = Vector3.one * particleSize;
             particleVisuals.Add(visual);
         }
