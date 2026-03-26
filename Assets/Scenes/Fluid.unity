@@ -386,9 +386,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   particleRadius: 0.1
+  particleSize: 0.2
   particlePrefab: {fileID: 8668078802190566844, guid: 50f5fea8ead2f7345805af0b7be42cc8, type: 3}
   gravity: -9.8
-  collisionDampening: 0.5
+  collisionDampening: 0.7
   boundsSize: {x: 10, y: 10}
   boundsCentre: {x: 0, y: 0}
 --- !u!120 &713960896

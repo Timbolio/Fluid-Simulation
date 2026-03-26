@@ -13,14 +13,17 @@ public class ParticleManager : MonoBehaviour
         public Vector2 velocity;
     }
 
-    Particle particle;
+    List<Particle> particles = new List<Particle>();
+    List<GameObject> particleVisuals = new List<GameObject>();
 
     [Header("Particle")]
-    public float particleRadius = 0.1f;
+    public int particleCount = 100;
+    public float particleSize = 0.2f;
+    public float particleSpacing = 0.25f;
+    float particleRadius;
 
     [Header("Rendering")]
     public GameObject particlePrefab;
-    GameObject particleVisual;
 
     [Header("Physics")]
     public float gravity = -9.8f;
@@ -34,14 +37,7 @@ public class ParticleManager : MonoBehaviour
 
     void Start()
     {
-        particle = new Particle
-        {
-            position = Vector2.zero,
-            velocity = Vector2.zero
-        };
-
-        particleVisual = Instantiate(particlePrefab, particle.position, Quaternion.identity);
-
+        
         // Bounds visualization
         boundsRenderer = GetComponent<LineRenderer>();
         boundsRenderer.positionCount = 5;
@@ -50,23 +46,65 @@ public class ParticleManager : MonoBehaviour
         boundsRenderer.useWorldSpace = true;
         boundsRenderer.material.color = Color.green;
 
+        SpawnParticles();
+
     }
 
 
     void Update()
     {
         float dt = Time.deltaTime;
-        // Apply gravity
-        particle.velocity += new Vector2(0, gravity) * dt;
-        // Update position
-        particle.position += particle.velocity * dt;
-        UpdateandResolve();
-        // Sync
-        particleVisual.transform.position = particle.position;
+        particleRadius = particleSize * 0.5f;
+
+        UpdateBoundsVisual();
+
+        for (int i = 0; i < particles.Count; i++)
+        {
+            Particle p = particles[i];
+            // Apply gravity
+            p.velocity.y += gravity * dt;
+            // Update position
+            p.position += p.velocity * dt;
+            // Collision with bounds
+            ResolveCollisions(ref p);
+            particles[i] = p; // update the struct in the list
+            
+            // Update visual position
+            particleVisuals[i].transform.position = p.position;
+            particleVisuals[i].transform.localScale = Vector3.one * particleSize;
+        }
+
 
     }
 
-    void UpdateandResolve() 
+    void SpawnParticles()
+    {
+        particles.Clear();
+        particleVisuals.Clear();
+        int gridSize = Mathf.CeilToInt(Mathf.Sqrt(particleCount));
+
+        for (int i = 0; i < particleCount; i++)
+        {
+            int x = i % gridSize;
+            int y = i / gridSize;
+
+            Vector2 pos = boundsCentre + new Vector2(
+                (x - gridSize * 0.5f) * particleSpacing,
+                (y - gridSize * 0.5f) * particleSpacing
+            );
+
+            Particle p = new Particle { position = pos, velocity = Vector2.zero };
+
+            particles.Add(p);
+
+            GameObject visual = Instantiate(particlePrefab, pos, Quaternion.identity);
+            visual.transform.localScale = Vector3.one * particleSize;
+            particleVisuals.Add(visual);
+        }
+    }
+
+
+    void UpdateBoundsVisual()
     {
         Vector2 half = boundsSize * 0.5f;
 
@@ -85,40 +123,47 @@ public class ParticleManager : MonoBehaviour
         boundsRenderer.SetPosition(2, topRight);
         boundsRenderer.SetPosition(3, topLeft);
         boundsRenderer.SetPosition(4, bottomLeft); // close loop
+    }
 
-        // X collisions
-        if (particle.position.x - particleRadius < left)
+    void ResolveCollisions(ref Particle p)
+    {
+        Vector2 half = boundsSize * 0.5f;
+
+        float left = boundsCentre.x - half.x;
+        float right = boundsCentre.x + half.x;
+        float bottom = boundsCentre.y - half.y;
+        float top = boundsCentre.y + half.y;
+
+        // X
+        if (p.position.x - particleRadius < left)
         {
-            particle.position.x = left + particleRadius;
-            particle.velocity.x *= -collisionDampening; // simple bounce with damping
+            p.position.x = left + particleRadius;
+            p.velocity.x *= -collisionDampening;
         }
-        else if (particle.position.x + particleRadius > right)
+        else if (p.position.x + particleRadius > right)
         {
-            particle.position.x = right - particleRadius;
-            particle.velocity.x *= -collisionDampening;
+            p.position.x = right - particleRadius;
+            p.velocity.x *= -collisionDampening;
         }
 
-        // y collisions
-        if (particle.position.y - particleRadius < bottom)
+        // Y
+        if (p.position.y - particleRadius < bottom)
         {
-            particle.position.y = bottom + particleRadius;
+            p.position.y = bottom + particleRadius;
 
-            if (Mathf.Abs(particle.velocity.y) < 0.1f)
-            {
-                particle.velocity.y = 0; // stop small bounces
-            }
-            else 
-            {
-                particle.velocity.y *= -collisionDampening;
-            }
+            if (Mathf.Abs(p.velocity.y) < 0.1f)
+                p.velocity.y = 0;
+            else
+                p.velocity.y *= -collisionDampening;
+
+            p.velocity.x *= 0.9f; // friction
         }
-        else if (particle.position.y + particleRadius > top)
+        else if (p.position.y + particleRadius > top)
         {
-            particle.position.y = top - particleRadius;
-            particle.velocity.y *= -collisionDampening;
+            p.position.y = top - particleRadius;
+            p.velocity.y *= -collisionDampening;
         }
 
     }
-
 
 }
