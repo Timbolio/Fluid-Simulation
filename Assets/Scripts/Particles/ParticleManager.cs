@@ -16,10 +16,14 @@ public class ParticleManager : MonoBehaviour
     {
         public Vector2 position;
         public Vector2 velocity;
+        public float density; 
     }
 
     List<Particle> particles = new List<Particle>();
     List<GameObject> particleVisuals = new List<GameObject>();
+
+    [Header("Density")]
+    public float smoothingRadius = 0.5f;
 
     [Header("Particle")]
     Transform particleParent;
@@ -65,8 +69,8 @@ public class ParticleManager : MonoBehaviour
     {
         boundsRenderer = GetComponent<LineRenderer>();
         boundsRenderer.positionCount = 5;
-        boundsRenderer.startWidth = 0.008f;
-        boundsRenderer.endWidth = 0.008f;
+        boundsRenderer.startWidth = 0.018f;
+        boundsRenderer.endWidth = 0.018f;
         boundsRenderer.useWorldSpace = true;
         boundsRenderer.material.color = Color.green;
 
@@ -120,6 +124,14 @@ public class ParticleManager : MonoBehaviour
             previousParticleCount = particleCount;
             previousSpawnMode = spawnMode;
         }
+    }
+
+    float SmoothingKernel(float r, float h) // TODO: Poly6 kernel for better performance and more accurate density estimation
+    {
+        if(r >= h) return 0f;
+
+        float x = 1f - (r / h);
+        return x * x;
     }
 
     void CacheExistingParticles()
