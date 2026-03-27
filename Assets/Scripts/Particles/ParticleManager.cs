@@ -4,9 +4,14 @@ using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.UIElements;
 
+public enum SpawnMode
+{
+    Grid,
+    Random
+};
+
 public class ParticleManager : MonoBehaviour
 {
-    [ExecuteAlways]
     struct Particle
     {
         public Vector2 position;
@@ -34,20 +39,30 @@ public class ParticleManager : MonoBehaviour
     public Vector2 boundsSize = new Vector2(8f, 8f);
     public Vector2 boundsCentre = Vector2.zero;
 
+    [Header("Controllables")]
+    public SpawnMode spawnMode;
+
+    
     LineRenderer boundsRenderer;
+    List<Vector2> randomPositions = new List<Vector2>(); // Object pool for random spawn positions to avoid teleporting when changing particle count in random mode
+    bool randomPositionsDirty = true;
+    
+    int previousParticleCount; // For editor change detection
+    SpawnMode previousSpawnMode; 
+
 
     private void OnValidate()
     {
         if (!Application.isPlaying) 
         {
+            randomPositionsDirty = true;
             RegenerateParticles();
         }
+
     }
 
     void Start()
     {
-        
-        // Bounds visualization
         boundsRenderer = GetComponent<LineRenderer>();
         boundsRenderer.positionCount = 5;
         boundsRenderer.startWidth = 0.008f;
@@ -55,8 +70,20 @@ public class ParticleManager : MonoBehaviour
         boundsRenderer.useWorldSpace = true;
         boundsRenderer.material.color = Color.green;
 
-        RegenerateParticles();
+        previousParticleCount = particleCount;
+        previousSpawnMode = spawnMode;
 
+        Transform existing = transform.Find("Particles");
+
+        if (existing != null)
+        {
+            particleParent = existing;
+            CacheExistingParticles();
+        }
+        else
+        {
+            RegenerateParticles(); // fallback if nothing exists
+        }
     }
 
 
@@ -67,7 +94,9 @@ public class ParticleManager : MonoBehaviour
 
         UpdateBoundsVisual();
 
-        for (int i = 0; i < particles.Count; i++)
+        int count = Mathf.Min(particles.Count, particleVisuals.Count);
+
+        for (int i = 0; i < count; i++)
         {
             Particle p = particles[i];
             // Apply gravity
@@ -83,29 +112,42 @@ public class ParticleManager : MonoBehaviour
             particleVisuals[i].transform.localScale = Vector3.one * particleSize;
         }
 
-
-    }
-
-    void GridSpawn() 
-    {
-        int gridSize = Mathf.CeilToInt(Mathf.Sqrt(particleCount));
-
-        for (int i = 0; i < particleCount; i++)
+        if (particleCount != previousParticleCount || spawnMode != previousSpawnMode)
         {
-            int x = i % gridSize;
-            int y = i / gridSize;
+            randomPositionsDirty = true;
+            RegenerateParticles();
 
-            Vector2 pos = boundsCentre + new Vector2(
-                (x - gridSize * 0.5f) * particleSpacing,
-                (y - gridSize * 0.5f) * particleSpacing
-            );
-
-            CreateParticle(pos);
+            previousParticleCount = particleCount;
+            previousSpawnMode = spawnMode;
         }
     }
 
-    void RandomSpawn() 
+    void CacheExistingParticles()
     {
+        particleVisuals.Clear();
+        particles.Clear();
+
+        if (particleParent == null) return;
+
+        for (int i = 0; i < particleParent.childCount; i++)
+        {
+            Transform child = particleParent.GetChild(i);
+
+            particleVisuals.Add(child.gameObject);
+
+            particles.Add(new Particle
+            {
+                position = child.position,
+                velocity = Vector2.zero
+            });
+        }
+    }
+
+
+    void PrecomputeRandomPositions()
+    {
+        randomPositions.Clear();
+
         Vector2 half = boundsSize * 0.5f;
 
         float left = boundsCentre.x - half.x;
@@ -115,51 +157,112 @@ public class ParticleManager : MonoBehaviour
 
         for (int i = 0; i < particleCount; i++)
         {
-            Vector2 pos = new Vector2(
+            randomPositions.Add(new Vector2(
                 Random.Range(left, right),
                 Random.Range(bottom, top)
-            );
-
-            CreateParticle(pos);
+            ));
         }
+
+        randomPositionsDirty = false;
     }
 
-    void CreateParticle(Vector2 pos)
+    Vector2 GetSpawnPosition(int index)
     {
-        Particle p = new Particle { position = pos, velocity = Vector2.zero };
+        Vector2 half = boundsSize * 0.5f;
 
-        particles.Add(p);
+        float left = boundsCentre.x - half.x;
+        float right = boundsCentre.x + half.x;
+        float bottom = boundsCentre.y - half.y;
+        float top = boundsCentre.y + half.y;
 
-        GameObject visual = Instantiate(particlePrefab, pos, Quaternion.identity, particleParent);
-        visual.transform.localScale = Vector3.one * particleSize;
+        switch (spawnMode)
+        {
+            case SpawnMode.Grid:
+                {
+                    int gridSize = Mathf.CeilToInt(Mathf.Sqrt(particleCount));
 
-        particleVisuals.Add(visual);
+                    int x = index % gridSize;
+                    int y = index / gridSize;
+
+                    return boundsCentre + new Vector2(
+                        (x - gridSize * 0.5f) * particleSpacing,
+                        (y - gridSize * 0.5f) * particleSpacing
+                    );
+                }
+
+            case SpawnMode.Random:
+                {
+                    
+                    if (randomPositionsDirty || randomPositions.Count != particleCount)
+                    {
+                        PrecomputeRandomPositions();
+                    }
+
+                    return randomPositions[index];
+                }
+        }
+
+        return boundsCentre;
     }
 
+    /// <summary>
+    /// 
+    /// REGENERATION LOGIC:
+    /// 
+    /// </summary>
     void RegenerateParticles()
     {
         if (particleParent == null)
         {
             Transform existing = transform.Find("Particles");
+
             if (existing != null)
-            {
                 particleParent = existing;
-            }
             else
             {
                 particleParent = new GameObject("Particles").transform;
                 particleParent.parent = transform;
             }
-
         }
-        for (int i = particleParent.childCount - 1; i >= 0; i--)
+        if (particleParent.childCount > 0) // for resync with editor between playtests
         {
-            DestroyImmediate(particleParent.GetChild(i).gameObject);
+            CacheExistingParticles();
+        }
+        // Ensure enough objects exist
+        while (particleVisuals.Count < particleCount)
+        {
+            GameObject visual = Instantiate(particlePrefab, Vector2.zero, Quaternion.identity, particleParent);
+            particleVisuals.Add(visual);
         }
 
-        particles.Clear();
-        particleVisuals.Clear();
-        
+        // Enable only what we need
+        for (int i = 0; i < particleVisuals.Count; i++)
+        {
+            bool active = i < particleCount;
+            particleVisuals[i].SetActive(active);
+
+            if (active)
+            {
+                Vector2 pos = GetSpawnPosition(i);
+                particleVisuals[i].transform.position = pos;
+
+                if (i >= particles.Count)
+                {
+                    particles.Add(new Particle { position = pos, velocity = Vector2.zero });
+                }
+                else
+                {
+                    Particle p = particles[i];
+                    p.position = pos;
+                    p.velocity = Vector2.zero; // reset velocity when regenerating
+                    particles[i] = p;
+                }
+            }
+        }
+
+        // Trim particle data list if needed
+        if (particles.Count > particleCount) { particles.RemoveRange(particleCount, particles.Count - particleCount); };
+
     }
 
 
