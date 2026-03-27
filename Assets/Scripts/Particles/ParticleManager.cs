@@ -16,7 +16,8 @@ public class ParticleManager : MonoBehaviour
     {
         public Vector2 position;
         public Vector2 velocity;
-        public float density; 
+        public float density;
+        public float pressure;
     }
 
     List<Particle> particles = new List<Particle>();
@@ -24,6 +25,10 @@ public class ParticleManager : MonoBehaviour
 
     [Header("Density")]
     public float smoothingRadius = 0.5f;
+
+    [Header("Pressure")]
+    public float restDensity = 1f;
+    public float stiffness = 50f;
 
     [Header("Particle")]
     Transform particleParent;
@@ -100,20 +105,31 @@ public class ParticleManager : MonoBehaviour
 
         int count = Mathf.Min(particles.Count, particleVisuals.Count);
 
+        ComputeDensities();
+        ComputePressure();
+        ApplyPressureForces(dt);
+
+        float maxDensity = 3.4f;
+
         for (int i = 0; i < count; i++)
         {
             Particle p = particles[i];
-            // Apply gravity
-            p.velocity.y += gravity * dt;
-            // Update position
+            float t = Mathf.Clamp01(p.density / maxDensity);
+            Color color = Color.Lerp(Color.blue, Color.red, t);
+
+            var renderer = particleVisuals[i].GetComponent<SpriteRenderer>();
+            if (renderer != null)
+            {
+                renderer.color = color;
+            }
+
             p.position += p.velocity * dt;
-            // Collision with bounds
             ResolveCollisions(ref p);
-            particles[i] = p; // update the struct in the list
-            
-            // Update visual position
-            particleVisuals[i].transform.position = p.position;
-            particleVisuals[i].transform.localScale = Vector3.one * particleSize;
+            particles[i] = p;
+            if (i < particleVisuals.Count) { particleVisuals[i].transform.position = p.position; };
+
+
+
         }
 
         if (particleCount != previousParticleCount || spawnMode != previousSpawnMode)
@@ -155,6 +171,72 @@ public class ParticleManager : MonoBehaviour
         }
     }
 
+    /// Density Calculation:
+
+    void ComputeDensities() 
+    {
+        for (int i = 0; i < particles.Count; i++) 
+        {
+            float density = 0f;
+            Vector2 pos_i = particles[i].position;
+
+            for (int j = 0; j < particles.Count; j++) 
+            {
+                Vector2 pos_j = particles[j].position;
+                float r = Vector2.Distance(pos_i, pos_j);
+                density += SmoothingKernel(r, smoothingRadius);
+            }
+
+            Particle p = particles[i];
+            p.density = density;
+            particles[i] = p;
+        }
+    }
+
+    // Pressure Calculations
+
+    void ComputePressure() 
+    {
+        for (int i = 0; i < particles.Count; i++) 
+        {
+            Particle p = particles[i];
+            p.pressure = stiffness * (p.density - restDensity);
+            particles[i] = p;
+        }
+    }
+
+    void ApplyPressureForces(float dt) 
+    {
+        for (int i = 0; i < particles.Count; i++) 
+        {
+            Vector2 force = Vector2.zero;
+            Vector2 pos_i = particles[i].position;
+
+            for (int j = 0; j < particles.Count; j++) 
+            {
+                if (i == j) continue;
+
+                Vector2 rVec = pos_i - particles[j].position;
+                float r = rVec.magnitude;
+
+                if (r < smoothingRadius && r > 0f) 
+                {
+                    float grad = (particles[i].pressure + particles[j].pressure) / (2f * particles[j].density);
+                    float q = 1f - (r / smoothingRadius);
+                    float kernalGrad = q; // Spiky kernel gradient (simplified for 2D)
+                    force += rVec.normalized * grad * kernalGrad;
+                }
+            }
+            
+            // gravity
+            force += Vector2.up * gravity;
+
+            //velocity
+            Particle p = particles[i];
+            p.velocity += force * dt;
+            particles[i] = p;
+        }
+    }
 
     void PrecomputeRandomPositions()
     {
