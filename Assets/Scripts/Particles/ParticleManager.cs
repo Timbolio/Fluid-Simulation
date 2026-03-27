@@ -86,6 +86,56 @@ public class ParticleManager : MonoBehaviour
 
     }
 
+    void GridSpawn() 
+    {
+        int gridSize = Mathf.CeilToInt(Mathf.Sqrt(particleCount));
+
+        for (int i = 0; i < particleCount; i++)
+        {
+            int x = i % gridSize;
+            int y = i / gridSize;
+
+            Vector2 pos = boundsCentre + new Vector2(
+                (x - gridSize * 0.5f) * particleSpacing,
+                (y - gridSize * 0.5f) * particleSpacing
+            );
+
+            CreateParticle(pos);
+        }
+    }
+
+    void RandomSpawn() 
+    {
+        Vector2 half = boundsSize * 0.5f;
+
+        float left = boundsCentre.x - half.x;
+        float right = boundsCentre.x + half.x;
+        float bottom = boundsCentre.y - half.y;
+        float top = boundsCentre.y + half.y;
+
+        for (int i = 0; i < particleCount; i++)
+        {
+            Vector2 pos = new Vector2(
+                Random.Range(left, right),
+                Random.Range(bottom, top)
+            );
+
+            CreateParticle(pos);
+        }
+    }
+
+    void CreateParticle(Vector2 pos)
+    {
+        Particle p = new Particle { position = pos, velocity = Vector2.zero };
+
+        particles.Add(p);
+
+        GameObject visual = Instantiate(particlePrefab, pos, Quaternion.identity, particleParent);
+        visual.transform.localScale = Vector3.one * particleSize;
+
+        particleVisuals.Add(visual);
+    }
+
     void RegenerateParticles()
     {
         if (particleParent == null)
@@ -109,26 +159,7 @@ public class ParticleManager : MonoBehaviour
 
         particles.Clear();
         particleVisuals.Clear();
-        int gridSize = Mathf.CeilToInt(Mathf.Sqrt(particleCount));
-
-        for (int i = 0; i < particleCount; i++)
-        {
-            int x = i % gridSize;
-            int y = i / gridSize;
-
-            Vector2 pos = boundsCentre + new Vector2(
-                (x - gridSize * 0.5f) * particleSpacing,
-                (y - gridSize * 0.5f) * particleSpacing
-            );
-
-            Particle p = new Particle { position = pos, velocity = Vector2.zero };
-
-            particles.Add(p);
-
-            GameObject visual = Instantiate(particlePrefab, pos, Quaternion.identity, particleParent);
-            visual.transform.localScale = Vector3.one * particleSize;
-            particleVisuals.Add(visual);
-        }
+        
     }
 
 

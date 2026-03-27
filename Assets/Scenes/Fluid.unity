@@ -386,9 +386,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3afd74056faf987449ae72d6e6db2fca, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  particleCount: 31
-  particleSize: 0.2
-  particleSpacing: 0.25
+  particleCount: 81
+  particleSize: 0.27
+  particleSpacing: 0.4
   particlePrefab: {fileID: 8668078802190566844, guid: 50f5fea8ead2f7345805af0b7be42cc8, type: 3}
   gravity: -9.8
   collisionDampening: 0.7
