@@ -175,6 +175,8 @@ public class ParticleManager : MonoBehaviour
 
     void ComputeDensities() 
     {
+        float h2 = smoothingRadius * smoothingRadius;
+
         for (int i = 0; i < particles.Count; i++) 
         {
             float density = 0f;
@@ -182,9 +184,13 @@ public class ParticleManager : MonoBehaviour
 
             for (int j = 0; j < particles.Count; j++) 
             {
-                Vector2 pos_j = particles[j].position;
-                float r = Vector2.Distance(pos_i, pos_j);
-                density += SmoothingKernel(r, smoothingRadius);
+                Vector2 rVec = pos_i - particles[j].position;
+                float r2 = rVec.sqrMagnitude;
+
+                if (r2 < h2) 
+                {
+                    density += SmoothingKernel(r2, h2);
+                }
             }
 
             Particle p = particles[i];
