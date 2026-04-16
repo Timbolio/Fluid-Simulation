@@ -39,6 +39,7 @@ public class ParticleManager : MonoBehaviour
 
     [Header("Rendering")]
     public GameObject particlePrefab;
+    List<SpriteRenderer> renderers = new List<SpriteRenderer>();
 
     [Header("Physics")]
     public float gravity = -9.8f;
@@ -50,6 +51,11 @@ public class ParticleManager : MonoBehaviour
 
     [Header("Controllables")]
     public SpawnMode spawnMode;
+
+    ComputeBuffer particleBuffer;
+    public ComputeShader computeShader;
+    int integrateKernel;
+
 
     
     LineRenderer boundsRenderer;
@@ -93,6 +99,12 @@ public class ParticleManager : MonoBehaviour
         {
             RegenerateParticles(); // fallback if nothing exists
         }
+
+        int stride = sizeof(float) * 6;
+        particleBuffer = new ComputeBuffer(particleCount, stride);
+        particleBuffer.SetData(particles);
+
+        integrateKernel = computeShader.FindKernel("Integrate");
     }
 
 
@@ -105,31 +117,32 @@ public class ParticleManager : MonoBehaviour
 
         int count = Mathf.Min(particles.Count, particleVisuals.Count);
 
-        ComputeDensities();
-        ComputePressure();
-        ApplyPressureForces(dt);
+        // ComputeDensities();
+        // ComputePressure();
+        // ApplyPressureForces(dt);
 
         float maxDensity = 3.4f;
+        computeShader.SetFloat("dt", Time.deltaTime);
+        computeShader.SetFloat("gravity", gravity);
+        computeShader.SetInt("particleCount", particles.Count);
+
+        computeShader.SetBuffer(integrateKernel, "Particles", particleBuffer);
+
+        int threadGroups = Mathf.CeilToInt(particles.Count / 256f);
+        computeShader.Dispatch(integrateKernel, threadGroups, 1, 1);
+
+        particleBuffer.GetData(particles);
 
         for (int i = 0; i < count; i++)
         {
             Particle p = particles[i];
-            float t = Mathf.Clamp01(p.density / maxDensity);
-            Color color = Color.Lerp(Color.blue, Color.red, t);
+            Color color = Color.blue;
+            renderers[i].color = color;
 
-            var renderer = particleVisuals[i].GetComponent<SpriteRenderer>();
-            if (renderer != null)
-            {
-                renderer.color = color;
-            }
-
-            p.position += p.velocity * dt;
+            // p.position += p.velocity * dt;
             ResolveCollisions(ref p);
             particles[i] = p;
             if (i < particleVisuals.Count) { particleVisuals[i].transform.position = p.position; };
-
-
-
         }
 
         if (particleCount != previousParticleCount || spawnMode != previousSpawnMode)
@@ -140,6 +153,8 @@ public class ParticleManager : MonoBehaviour
             previousParticleCount = particleCount;
             previousSpawnMode = spawnMode;
         }
+
+        particleBuffer.SetData(particles);
     }
 
     float SmoothingKernel(float r, float h) // TODO: Poly6 kernel for better performance and more accurate density estimation
@@ -154,6 +169,7 @@ public class ParticleManager : MonoBehaviour
     {
         particleVisuals.Clear();
         particles.Clear();
+        renderers.Clear();
 
         if (particleParent == null) return;
 
@@ -161,6 +177,7 @@ public class ParticleManager : MonoBehaviour
         {
             Transform child = particleParent.GetChild(i);
 
+            renderers.Add(child.GetComponent<SpriteRenderer>());
             particleVisuals.Add(child.gameObject);
 
             particles.Add(new Particle
@@ -171,78 +188,78 @@ public class ParticleManager : MonoBehaviour
         }
     }
 
-    /// Density Calculation:
+    ///// Density Calculation:
 
-    void ComputeDensities() 
-    {
-        float h2 = smoothingRadius * smoothingRadius;
+    //void ComputeDensities() 
+    //{
+    //    float h2 = smoothingRadius * smoothingRadius;
 
-        for (int i = 0; i < particles.Count; i++) 
-        {
-            float density = 0f;
-            Vector2 pos_i = particles[i].position;
+    //    for (int i = 0; i < particles.Count; i++) 
+    //    {
+    //        float density = 0f;
+    //        Vector2 pos_i = particles[i].position;
 
-            for (int j = 0; j < particles.Count; j++) 
-            {
-                Vector2 rVec = pos_i - particles[j].position;
-                float r2 = rVec.sqrMagnitude;
+    //        for (int j = 0; j < particles.Count; j++) 
+    //        {
+    //            Vector2 rVec = pos_i - particles[j].position;
+    //            float r2 = rVec.sqrMagnitude;
 
-                if (r2 < h2) 
-                {
-                    density += SmoothingKernel(r2, h2);
-                }
-            }
+    //            if (r2 < h2) 
+    //            {
+    //                density += SmoothingKernel(r2, h2);
+    //            }
+    //        }
 
-            Particle p = particles[i];
-            p.density = density;
-            particles[i] = p;
-        }
-    }
+    //        Particle p = particles[i];
+    //        p.density = density;
+    //        particles[i] = p;
+    //    }
+    //}
 
-    // Pressure Calculations
+    //// Pressure Calculations
 
-    void ComputePressure() 
-    {
-        for (int i = 0; i < particles.Count; i++) 
-        {
-            Particle p = particles[i];
-            p.pressure = stiffness * (p.density - restDensity);
-            particles[i] = p;
-        }
-    }
+    //void ComputePressure() 
+    //{
+    //    for (int i = 0; i < particles.Count; i++) 
+    //    {
+    //        Particle p = particles[i];
+    //        p.pressure = stiffness * (p.density - restDensity);
+    //        particles[i] = p;
+    //    }
+    //}
 
-    void ApplyPressureForces(float dt) 
-    {
-        for (int i = 0; i < particles.Count; i++) 
-        {
-            Vector2 force = Vector2.zero;
-            Vector2 pos_i = particles[i].position;
+    //void ApplyPressureForces(float dt) 
+    //{
+    //    for (int i = 0; i < particles.Count; i++) 
+    //    {
+    //        Vector2 force = Vector2.zero;
+    //        Vector2 pos_i = particles[i].position;
 
-            for (int j = 0; j < particles.Count; j++) 
-            {
-                if (i == j) continue;
+    //        for (int j = 0; j < particles.Count; j++) 
+    //        {
+    //            if (i == j) continue;
 
-                Vector2 rVec = pos_i - particles[j].position;
-                float r = rVec.magnitude;
+    //            Vector2 rVec = pos_i - particles[j].position;
+    //            float r = rVec.magnitude;
 
-                if (r < smoothingRadius && r > 0f) 
-                {
-                    float grad = (particles[i].pressure + particles[j].pressure) / (2f * particles[j].density);
-                    float q = 1f - (r / smoothingRadius);
-                    float kernalGrad = q; // Spiky kernel gradient (simplified for 2D)
-                    force += rVec.normalized * grad * kernalGrad;
-                }
-            }
+    //            if (r < smoothingRadius && r > 0f) 
+    //            {
+    //                float grad = (particles[i].pressure + particles[j].pressure) / (2f * particles[j].density);
+    //                float q = 1f - (r / smoothingRadius);
+    //                float kernalGrad = q; // Spiky kernel gradient (simplified for 2D)
+    //                force += rVec.normalized * grad * kernalGrad;
+    //            }
+    //        }
             
-            // gravity
-            force += Vector2.up * gravity;
+    //        // gravity
+    //        force += Vector2.up * gravity;
 
-            //velocity
-            Particle p = particles[i];
-            p.velocity += force * dt;
-            particles[i] = p;
-        }
-    }
+    //        //velocity
+    //        Particle p = particles[i];
+    //        p.velocity += force * dt;
+    //        particles[i] = p;
+    //    }
+    //}
 
     void PrecomputeRandomPositions()
     {
@@ -328,6 +345,8 @@ public class ParticleManager : MonoBehaviour
         {
             CacheExistingParticles();
         }
+
+        renderers.Clear();
         // Ensure enough objects exist
         while (particleVisuals.Count < particleCount)
         {
@@ -338,6 +357,7 @@ public class ParticleManager : MonoBehaviour
         // Enable only what we need
         for (int i = 0; i < particleVisuals.Count; i++)
         {
+            renderers.Add(particleVisuals[i].GetComponent<SpriteRenderer>());
             bool active = i < particleCount;
             particleVisuals[i].SetActive(active);
 

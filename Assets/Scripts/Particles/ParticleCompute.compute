@@ -1,0 +1,29 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel Integrate
+
+struct Particle
+{
+    float2 position;
+    float2 velocity;
+    float density;
+    float pressure;
+};
+
+RWStructuredBuffer<Particle> Particles;
+
+float dt;
+float gravity;
+int particleCount;
+
+[numthreads(256,1,1)]
+
+void Integrate (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= particleCount) return; // Bounds check
+    
+    Particle p = Particles[id.x];
+    p.velocity.y += gravity * dt; // Apply gravity
+    p.position += p.velocity * dt; // Update position, this is more stable than explicit Euler
+    Particles[id.x] = p; 
+}
+
