@@ -15,15 +15,64 @@ float dt;
 float gravity;
 int particleCount;
 
+// Bounds
+float2 boundsCentre;
+float2 boundsSize;
+
+// Collision
+float collisionDampening;
+float particleRadius;
+
 [numthreads(256,1,1)]
 
-void Integrate (uint3 id : SV_DispatchThreadID)
+void Integrate (uint id : SV_DispatchThreadID)
 {
-    if (id.x >= particleCount) return; // Bounds check
+    if (id >= particleCount)
+        return;
+
+    Particle p = Particles[id];
     
-    Particle p = Particles[id.x];
-    p.velocity.y += gravity * dt; // Apply gravity
-    p.position += p.velocity * dt; // Update position, this is more stable than explicit Euler
-    Particles[id.x] = p; 
+    p.velocity.y += gravity * dt;
+    
+    p.position += p.velocity * dt;
+    
+    float2 halfSize = boundsSize * 0.5;
+    float left = boundsCentre.x - halfSize.x;
+    float right = boundsCentre.x + halfSize.x;
+    float bottom = boundsCentre.y - halfSize.y;
+    float top = boundsCentre.y + halfSize.y;
+
+    // X axis
+    if (p.position.x - particleRadius < left)
+    {
+        p.position.x = left + particleRadius;
+        p.velocity.x *= -collisionDampening;
+    }
+    else if (p.position.x + particleRadius > right)
+    {
+        p.position.x = right - particleRadius;
+        p.velocity.x *= -collisionDampening;
+    }
+
+    // Y axis
+    if (p.position.y - particleRadius < bottom)
+    {
+        p.position.y = bottom + particleRadius;
+
+        if (abs(p.velocity.y) < 0.1)
+            p.velocity.y = 0;
+        else
+            p.velocity.y *= -collisionDampening;
+
+        p.velocity.x *= 0.9; // friction
+    }
+    else if (p.position.y + particleRadius > top)
+    {
+        p.position.y = top - particleRadius;
+        p.velocity.y *= -collisionDampening;
+    }
+
+    // --- WRITE BACK ---
+    Particles[id] = p;
 }
 

@@ -22,28 +22,20 @@ public class ParticleManager : MonoBehaviour
 
     List<Particle> particles = new List<Particle>();
     List<GameObject> particleVisuals = new List<GameObject>();
+    List<SpriteRenderer> renderers = new List<SpriteRenderer>();
 
-    [Header("Density")]
-    public float smoothingRadius = 0.5f;
-
-    [Header("Pressure")]
-    public float restDensity = 1f;
-    public float stiffness = 50f;
 
     [Header("Particle")]
     Transform particleParent;
     public int particleCount = 100;
     public float particleSize = 0.2f;
     public float particleSpacing = 0.25f;
-    float particleRadius;
 
     [Header("Rendering")]
     public GameObject particlePrefab;
-    List<SpriteRenderer> renderers = new List<SpriteRenderer>();
 
     [Header("Physics")]
     public float gravity = -9.8f;
-    public float collisionDampening = 0.5f;
 
     [Header("Bounds")]
     public Vector2 boundsSize = new Vector2(8f, 8f);
@@ -57,18 +49,17 @@ public class ParticleManager : MonoBehaviour
     int integrateKernel;
 
 
-    
     LineRenderer boundsRenderer;
     List<Vector2> randomPositions = new List<Vector2>(); // Object pool for random spawn positions to avoid teleporting when changing particle count in random mode
     bool randomPositionsDirty = true;
-    
+
     int previousParticleCount; // For editor change detection
-    SpawnMode previousSpawnMode; 
+    SpawnMode previousSpawnMode;
 
 
     private void OnValidate()
     {
-        if (!Application.isPlaying) 
+        if (!Application.isPlaying)
         {
             randomPositionsDirty = true;
             RegenerateParticles();
@@ -88,17 +79,7 @@ public class ParticleManager : MonoBehaviour
         previousParticleCount = particleCount;
         previousSpawnMode = spawnMode;
 
-        Transform existing = transform.Find("Particles");
-
-        if (existing != null)
-        {
-            particleParent = existing;
-            CacheExistingParticles();
-        }
-        else
-        {
-            RegenerateParticles(); // fallback if nothing exists
-        }
+        RegenerateParticles();
 
         int stride = sizeof(float) * 6;
         particleBuffer = new ComputeBuffer(particleCount, stride);
@@ -110,21 +91,15 @@ public class ParticleManager : MonoBehaviour
 
     void Update()
     {
-        float dt = Time.deltaTime;
-        particleRadius = particleSize * 0.5f;
-
         UpdateBoundsVisual();
 
-        int count = Mathf.Min(particles.Count, particleVisuals.Count);
-
-        // ComputeDensities();
-        // ComputePressure();
-        // ApplyPressureForces(dt);
-
-        float maxDensity = 3.4f;
         computeShader.SetFloat("dt", Time.deltaTime);
         computeShader.SetFloat("gravity", gravity);
         computeShader.SetInt("particleCount", particles.Count);
+        computeShader.SetVector("boundsCentre", boundsCentre);
+        computeShader.SetVector("boundsSize", boundsSize);
+        computeShader.SetFloat("particleRadius", 0.1f);
+        computeShader.SetFloat("collisionDamping", 0.5f);
 
         computeShader.SetBuffer(integrateKernel, "Particles", particleBuffer);
 
@@ -132,17 +107,13 @@ public class ParticleManager : MonoBehaviour
         computeShader.Dispatch(integrateKernel, threadGroups, 1, 1);
 
         particleBuffer.GetData(particles);
+        int count = Mathf.Min(particles.Count, particleVisuals.Count);
 
         for (int i = 0; i < count; i++)
         {
             Particle p = particles[i];
-            Color color = Color.blue;
-            renderers[i].color = color;
-
-            // p.position += p.velocity * dt;
-            ResolveCollisions(ref p);
-            particles[i] = p;
-            if (i < particleVisuals.Count) { particleVisuals[i].transform.position = p.position; };
+            renderers[i].color = Color.blue;
+            particleVisuals[i].transform.position = p.position;
         }
 
         if (particleCount != previousParticleCount || spawnMode != previousSpawnMode)
@@ -157,109 +128,10 @@ public class ParticleManager : MonoBehaviour
         particleBuffer.SetData(particles);
     }
 
-    float SmoothingKernel(float r, float h) // TODO: Poly6 kernel for better performance and more accurate density estimation
+    void OnDestroy()
     {
-        if(r >= h) return 0f;
-
-        float x = 1f - (r / h);
-        return x * x;
+        particleBuffer?.Release();
     }
-
-    void CacheExistingParticles()
-    {
-        particleVisuals.Clear();
-        particles.Clear();
-        renderers.Clear();
-
-        if (particleParent == null) return;
-
-        for (int i = 0; i < particleParent.childCount; i++)
-        {
-            Transform child = particleParent.GetChild(i);
-
-            renderers.Add(child.GetComponent<SpriteRenderer>());
-            particleVisuals.Add(child.gameObject);
-
-            particles.Add(new Particle
-            {
-                position = child.position,
-                velocity = Vector2.zero
-            });
-        }
-    }
-
-    ///// Density Calculation:
-
-    //void ComputeDensities() 
-    //{
-    //    float h2 = smoothingRadius * smoothingRadius;
-
-    //    for (int i = 0; i < particles.Count; i++) 
-    //    {
-    //        float density = 0f;
-    //        Vector2 pos_i = particles[i].position;
-
-    //        for (int j = 0; j < particles.Count; j++) 
-    //        {
-    //            Vector2 rVec = pos_i - particles[j].position;
-    //            float r2 = rVec.sqrMagnitude;
-
-    //            if (r2 < h2) 
-    //            {
-    //                density += SmoothingKernel(r2, h2);
-    //            }
-    //        }
-
-    //        Particle p = particles[i];
-    //        p.density = density;
-    //        particles[i] = p;
-    //    }
-    //}
-
-    //// Pressure Calculations
-
-    //void ComputePressure() 
-    //{
-    //    for (int i = 0; i < particles.Count; i++) 
-    //    {
-    //        Particle p = particles[i];
-    //        p.pressure = stiffness * (p.density - restDensity);
-    //        particles[i] = p;
-    //    }
-    //}
-
-    //void ApplyPressureForces(float dt) 
-    //{
-    //    for (int i = 0; i < particles.Count; i++) 
-    //    {
-    //        Vector2 force = Vector2.zero;
-    //        Vector2 pos_i = particles[i].position;
-
-    //        for (int j = 0; j < particles.Count; j++) 
-    //        {
-    //            if (i == j) continue;
-
-    //            Vector2 rVec = pos_i - particles[j].position;
-    //            float r = rVec.magnitude;
-
-    //            if (r < smoothingRadius && r > 0f) 
-    //            {
-    //                float grad = (particles[i].pressure + particles[j].pressure) / (2f * particles[j].density);
-    //                float q = 1f - (r / smoothingRadius);
-    //                float kernalGrad = q; // Spiky kernel gradient (simplified for 2D)
-    //                force += rVec.normalized * grad * kernalGrad;
-    //            }
-    //        }
-            
-    //        // gravity
-    //        force += Vector2.up * gravity;
-
-    //        //velocity
-    //        Particle p = particles[i];
-    //        p.velocity += force * dt;
-    //        particles[i] = p;
-    //    }
-    //}
 
     void PrecomputeRandomPositions()
     {
@@ -309,7 +181,7 @@ public class ParticleManager : MonoBehaviour
 
             case SpawnMode.Random:
                 {
-                    
+
                     if (randomPositionsDirty || randomPositions.Count != particleCount)
                     {
                         PrecomputeRandomPositions();
@@ -322,11 +194,6 @@ public class ParticleManager : MonoBehaviour
         return boundsCentre;
     }
 
-    /// <summary>
-    /// 
-    /// REGENERATION LOGIC:
-    /// 
-    /// </summary>
     void RegenerateParticles()
     {
         if (particleParent == null)
@@ -340,10 +207,6 @@ public class ParticleManager : MonoBehaviour
                 particleParent = new GameObject("Particles").transform;
                 particleParent.parent = transform;
             }
-        }
-        if (particleParent.childCount > 0) // for resync with editor between playtests
-        {
-            CacheExistingParticles();
         }
 
         renderers.Clear();
@@ -376,12 +239,13 @@ public class ParticleManager : MonoBehaviour
                     p.position = pos;
                     p.velocity = Vector2.zero; // reset velocity when regenerating
                     particles[i] = p;
+
                 }
             }
         }
 
-        // Trim particle data list if needed
-        if (particles.Count > particleCount) { particles.RemoveRange(particleCount, particles.Count - particleCount); };
+        if (particles.Count > particleCount) { particles.RemoveRange(particleCount, particles.Count - particleCount); }
+        ;
 
     }
 
@@ -406,46 +270,5 @@ public class ParticleManager : MonoBehaviour
         boundsRenderer.SetPosition(3, topLeft);
         boundsRenderer.SetPosition(4, bottomLeft); // close loop
     }
-
-    void ResolveCollisions(ref Particle p)
-    {
-        Vector2 half = boundsSize * 0.5f;
-
-        float left = boundsCentre.x - half.x;
-        float right = boundsCentre.x + half.x;
-        float bottom = boundsCentre.y - half.y;
-        float top = boundsCentre.y + half.y;
-
-        // X
-        if (p.position.x - particleRadius < left)
-        {
-            p.position.x = left + particleRadius;
-            p.velocity.x *= -collisionDampening;
-        }
-        else if (p.position.x + particleRadius > right)
-        {
-            p.position.x = right - particleRadius;
-            p.velocity.x *= -collisionDampening;
-        }
-
-        // Y
-        if (p.position.y - particleRadius < bottom)
-        {
-            p.position.y = bottom + particleRadius;
-
-            if (Mathf.Abs(p.velocity.y) < 0.1f)
-                p.velocity.y = 0;
-            else
-                p.velocity.y *= -collisionDampening;
-
-            p.velocity.x *= 0.9f; // friction
-        }
-        else if (p.position.y + particleRadius > top)
-        {
-            p.position.y = top - particleRadius;
-            p.velocity.y *= -collisionDampening;
-        }
-
-    }
-
 }
+
